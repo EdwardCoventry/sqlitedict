@@ -227,7 +227,8 @@ class SqliteDict(DictClass):
         else:
             MAKE_TABLE = 'CREATE TABLE IF NOT EXISTS "%s" (key TEXT PRIMARY KEY, value BLOB)' % self.tablename
             self.conn.execute(MAKE_TABLE)
-            self.conn.commit()
+            if self.autocommit:
+                self.conn.commit()
         if flag == 'w':
             self.clear()
 
