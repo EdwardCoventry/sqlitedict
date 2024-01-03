@@ -145,6 +145,11 @@ def identity(obj):
 class SqliteDict(DictClass):
     VALID_FLAGS = ['c', 'r', 'w', 'n']
 
+    additional_columns = {}
+
+    # Specify the columns to index, can be a single column name or a tuple for multi-column index
+    index_columns = []
+
     def __init__(self, filename=None, tablename='unnamed', flag='c',
                  autocommit=False, journal_mode="DELETE", encode=encode,
                  decode=decode, encode_key=identity, decode_key=identity,
@@ -225,8 +230,19 @@ class SqliteDict(DictClass):
                 msg = 'Refusing to create a new table "%s" in read-only DB mode' % tablename
                 raise RuntimeError(msg)
         else:
-            MAKE_TABLE = 'CREATE TABLE IF NOT EXISTS "%s" (key TEXT PRIMARY KEY, value BLOB)' % self.tablename
+            # Construct the complete SQL statement for table creation including additional columns
+            additional_col_defs = ', '.join(
+                f'"{col_name}" {col_type}' for col_name, col_type in {
+                    **{'key': 'TEXT PRIMARY KEY', 'value': 'BLOB'},
+                    **(self.additional_columns or {})}.items())
+            MAKE_TABLE = f'''CREATE TABLE IF NOT EXISTS "{self.tablename}" (
+                                {additional_col_defs}
+                                )'''
             self.conn.execute(MAKE_TABLE)
+
+            # Create indexes for specified columns
+            self.create_indexes()
+
             if self.autocommit:
                 self.conn.commit()
         if flag == 'w':
