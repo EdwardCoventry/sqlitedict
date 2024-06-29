@@ -36,6 +36,8 @@ import traceback
 from base64 import b64decode, b64encode
 import weakref
 
+from typing import Dict, List
+
 __version__ = '2.1.0'
 
 
@@ -62,7 +64,6 @@ try:
     from queue import Queue
 except ImportError:
     from Queue import Queue
-
 
 logger = logging.getLogger(__name__)
 
@@ -145,10 +146,20 @@ def identity(obj):
 class SqliteDict(DictClass):
     VALID_FLAGS = ['c', 'r', 'w', 'n']
 
-    additional_columns = {}
+    standard_columns: Dict[str, str] = {'key': 'TEXT PRIMARY KEY', 'value': 'BLOB'}
+    additional_columns: Dict[str, str] = {}
+    index_standard_columns: List[str] = ['key']
+    index_additional_columns: List[str] = []
+    table_specific_additional_columns: Dict[str, Dict[str, str]] = {}
+    table_specific_index_additional_columns: Dict[str, List[str]] = {}
 
-    # Specify the columns to index, can be a single column name or a tuple for multi-column index
-    index_columns = []
+    @property
+    def table_columns(self):
+        return self.table_specific_additional_columns.get(self.tablename, {})
+
+    @property
+    def index_table_columns(self):
+        return self.table_specific_index_additional_columns.get(self.tablename, [])
 
     def __init__(self, filename=None, tablename='unnamed', flag='c',
                  autocommit=False, journal_mode="DELETE", encode=encode,
@@ -170,7 +181,7 @@ class SqliteDict(DictClass):
         or if you need performance and don't care about crash-consistency.
 
         Set `outer_stack` to False to disable the output of the outer exception
-        to the error logs.  This may improve the efficiency of sqlitedict
+        to the error logs. This may improve the efficiency of sqlitedict
         operation at the expense of a detailed exception trace.
 
         The `flag` parameter. Exactly one of:
@@ -212,7 +223,6 @@ class SqliteDict(DictClass):
         self.filename = filename
 
         # Use standard SQL escaping of double quote characters in identifiers, by doubling them.
-        # See https://github.com/RaRe-Technologies/sqlitedict/pull/113
         self.tablename = tablename.replace('"', '""')
 
         self.autocommit = autocommit
@@ -230,15 +240,7 @@ class SqliteDict(DictClass):
                 msg = 'Refusing to create a new table "%s" in read-only DB mode' % tablename
                 raise RuntimeError(msg)
         else:
-            # Construct the complete SQL statement for table creation including additional columns
-            additional_col_defs = ', '.join(
-                f'"{col_name}" {col_type}' for col_name, col_type in {
-                    **{'key': 'TEXT PRIMARY KEY', 'value': 'BLOB'},
-                    **(self.additional_columns or {})}.items())
-            MAKE_TABLE = f'''CREATE TABLE IF NOT EXISTS "{self.tablename}" (
-                                {additional_col_defs}
-                                )'''
-            self.conn.execute(MAKE_TABLE)
+            self.create_table()
 
             # Create indexes for specified columns
             self.create_indexes()
@@ -247,6 +249,21 @@ class SqliteDict(DictClass):
                 self.conn.commit()
         if flag == 'w':
             self.clear()
+
+    def create_table(self):
+        # Combine standard and additional columns
+        all_columns = {**self.standard_columns, **self.additional_columns, **self.table_columns}
+        column_defs = ', '.join(f'"{col_name}" {col_type}' for col_name, col_type in all_columns.items())
+        CREATE_TABLE_SQL = f'''CREATE TABLE IF NOT EXISTS "{self.tablename}" (
+                               {column_defs}
+                               )'''
+        self.conn.execute(CREATE_TABLE_SQL)
+
+    def create_indexes(self):
+        # Create indexes for specified columns
+        for idx in (*self.index_standard_columns, *self.index_additional_columns, *self.index_table_columns):
+            INDEX_CMD = f'CREATE INDEX IF NOT EXISTS idx_{idx} ON "{self.tablename}"({idx})'
+            self.conn.execute(INDEX_CMD)
 
     def _new_conn(self):
         return SqliteMultithread(
@@ -393,6 +410,7 @@ class SqliteDict(DictClass):
         """
         if self.conn is not None:
             self.conn.commit(blocking)
+
     sync = commit
 
     def close(self, do_log=True, force=False):
@@ -449,6 +467,7 @@ class SqliteMultithread(threading.Thread):
     in a separate thread (in the same order they arrived).
 
     """
+
     def __init__(self, filename, autocommit, journal_mode, outer_stack=True):
         super(SqliteMultithread, self).__init__()
         self.filename = filename
