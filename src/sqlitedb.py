@@ -14,6 +14,7 @@ from queue import Queue
 import threading
 import traceback
 import weakref
+from .sqlitemultithread import SqliteMultithread
 
 
 class SqliteDb:
@@ -26,7 +27,7 @@ class SqliteDb:
             fd, filename = tempfile.mkstemp(prefix='sqldict')
             os.close(fd)
 
-        if flag not in BaseSqlite.VALID_FLAGS:
+        if flag not in SqliteDb.VALID_FLAGS:
             raise RuntimeError("Unrecognized flag: %s" % flag)
         self.flag = flag
 
@@ -58,6 +59,12 @@ class SqliteDb:
                 self.conn.commit()
         if flag == 'w':
             self.clear()
+
+    def __str__(self):
+        return f"SqliteDb {self.filename}"
+
+    def __repr__(self):
+        return str(self)  # no need of something complex
 
     def _new_conn(self):
         return SqliteMultithread(

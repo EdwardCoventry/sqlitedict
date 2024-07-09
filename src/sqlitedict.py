@@ -1,5 +1,4 @@
-
-#!/usr/bin/env python
+# !/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
 # This code is distributed under the terms and conditions
@@ -30,31 +29,37 @@ from base64 import b64decode, b64encode
 from pickle import dumps, loads, HIGHEST_PROTOCOL as PICKLE_PROTOCOL
 from collections import UserDict as DictClass
 from typing import Dict, List
-from basesqlite import BaseSqlite
+from .sqlitedb import SqliteDb  # Relative import from sqlitedb
 
 logger = logging.getLogger(__name__)
+
 
 def encode(obj):
     """Serialize an object using pickle to a binary format accepted by SQLite."""
     return sqlite3.Binary(dumps(obj, protocol=PICKLE_PROTOCOL))
 
+
 def decode(obj):
     """Deserialize objects retrieved from SQLite."""
     return loads(bytes(obj))
+
 
 def encode_key(key):
     """Serialize a key using pickle + base64 encoding to text accepted by SQLite."""
     return b64encode(dumps(key, protocol=PICKLE_PROTOCOL)).decode("ascii")
 
+
 def decode_key(key):
     """Deserialize a key retrieved from SQLite."""
     return loads(b64decode(key.encode("ascii")))
+
 
 def identity(obj):
     """Identity function f(x) = x for encoding/decoding."""
     return obj
 
-class SqliteDict(BaseSqlite, DictClass):
+
+class SqliteDict(SqliteDb, DictClass):
     standard_columns: Dict[str, str] = {'key': 'TEXT PRIMARY KEY', 'value': 'BLOB'}
     additional_columns: Dict[str, str] = {}
     index_standard_columns: List[str] = ['key']
@@ -79,6 +84,9 @@ class SqliteDict(BaseSqlite, DictClass):
         self.encode_key = encode_key
         self.decode_key = decode_key
         super().__init__(filename, tablename, flag, autocommit, journal_mode, timeout, outer_stack)
+
+    def __str__(self):
+        return f"SqliteDict {self.filename}"
 
     def create_table(self):
         all_columns = {**self.standard_columns, **self.additional_columns, **self.table_columns}
